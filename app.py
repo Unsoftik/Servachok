@@ -29,12 +29,6 @@ def check_pin(pin_code):
     # Вы можете закомментировать или изменить эту функцию, если хотите использовать пин-код
     return True  # Делаем всегда True для упрощения
 
-@app.route("/get_users", methods=["GET"])
-def get_users():
-    users = load_users()
-    return jsonify(users), 200
-
-
 @app.route("/register", methods=["POST"])
 def register():
     username = request.form.get("username")
