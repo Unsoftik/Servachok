@@ -54,25 +54,26 @@ def register():
 
 @app.route("/login", methods=["POST"])
 def login():
-    data = request.get_json()  # Извлекаем данные из JSON запроса
-    print("Полученные данные:", data)  # Логируем данные запроса
-    
+    data = request.get_json()
     if not data:
         return jsonify({"message": "Не получены данные!"}), 400
     
     username = data.get("username")
     password = data.get("password")
-    
-    # Логируем данные после извлечения
-    print(f"Имя пользователя: {username}, Пароль: {password}")
 
     if not username or not password:
         return jsonify({"message": "Необходимо предоставить имя пользователя и пароль."}), 400
 
     users = load_users()
+    
+    # Логируем содержимое базы данных
+    print("Содержимое базы данных пользователей:", users)
 
-    if username not in users or users[username]['password'] != hash_password(password):
-        return jsonify({"message": "Неверный логин или пароль."}), 400
+    if username not in users:
+        return jsonify({"message": "Пользователь не найден."}), 400
+
+    if users[username]['password'] != password:
+        return jsonify({"message": "Неверный пароль."}), 400
 
     return jsonify({"message": "Вход успешен!"}), 200
 
