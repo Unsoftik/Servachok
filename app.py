@@ -54,8 +54,15 @@ def register():
 
 @app.route("/login", methods=["POST"])
 def login():
-    username = request.form.get("username")
-    password = request.form.get("password")
+    data = request.get_json()  # Извлекаем данные из JSON запроса
+    if not data:
+        return jsonify({"message": "Не получены данные!"}), 400
+    
+    username = data.get("username")
+    password = data.get("password")
+
+    if not username or not password:
+        return jsonify({"message": "Необходимо предоставить имя пользователя и пароль."}), 400
 
     users = load_users()
 
