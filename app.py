@@ -24,10 +24,10 @@ def save_users(users):
 def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
 
-# Проверка пин-кода (например, "1312")
+# Проверка пин-кода (пин-код теперь необязателен для входа)
 def check_pin(pin_code):
-    correct_pin = "f16721a7b9105dca050e3c73b816bc3ce1b3f7a2bc5078f0c3a62fe5ff26fecc"
-    return pin_code == correct_pin
+    # Вы можете закомментировать или изменить эту функцию, если хотите использовать пин-код
+    return True  # Делаем всегда True для упрощения
 
 @app.route("/register", methods=["POST"])
 def register():
@@ -54,30 +54,15 @@ def register():
 
 @app.route("/login", methods=["POST"])
 def login():
-    data = request.get_json()
-    if not data:
-        return jsonify({"message": "Не получены данные!"}), 400
-    
-    username = data.get("username")
-    password = data.get("password")
-
-    if not username or not password:
-        return jsonify({"message": "Необходимо предоставить имя пользователя и пароль."}), 400
+    username = request.form.get("username")
+    password = request.form.get("password")
 
     users = load_users()
-    
-    # Логируем содержимое базы данных
-    print("Содержимое базы данных пользователей:", users)
 
-    if username not in users:
-        return jsonify({"message": "Пользователь не найден."}), 400
-
-    if users[username]['password'] != password:
-        return jsonify({"message": "Неверный пароль."}), 400
+    if username not in users or users[username]['password'] != hash_password(password):
+        return jsonify({"message": "Неверный логин или пароль."}), 400
 
     return jsonify({"message": "Вход успешен!"}), 200
 
-
 if __name__ == "__main__":
-    app.run(debug=True, host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
-
+    app.run(debug=True, host="0.0.0.0", port=8080)  # Убедитесь, что сервер доступен на всех интерфейсах
