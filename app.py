@@ -55,11 +55,16 @@ def register():
 @app.route("/login", methods=["POST"])
 def login():
     data = request.get_json()  # Извлекаем данные из JSON запроса
+    print("Полученные данные:", data)  # Логируем данные запроса
+    
     if not data:
         return jsonify({"message": "Не получены данные!"}), 400
     
     username = data.get("username")
     password = data.get("password")
+    
+    # Логируем данные после извлечения
+    print(f"Имя пользователя: {username}, Пароль: {password}")
 
     if not username or not password:
         return jsonify({"message": "Необходимо предоставить имя пользователя и пароль."}), 400
@@ -70,6 +75,7 @@ def login():
         return jsonify({"message": "Неверный логин или пароль."}), 400
 
     return jsonify({"message": "Вход успешен!"}), 200
+
 
 if __name__ == "__main__":
     app.run(debug=True, host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
