@@ -21,6 +21,7 @@ def register():
     username = request.form.get("username")
     password = request.form.get("password")
     pin_code = request.form.get("pin")
+    developer = request.form.get("developer", "0")  # По умолчанию 0 (не разработчик)
 
     users = load_users()
 
@@ -30,7 +31,10 @@ def register():
     if not password:
         return jsonify({"message": "Пароль не может быть пустым!"}), 400
 
-    users[username] = {'password': password}
+    users[username] = {
+        'password': password,
+        'developer': developer == "1"  # Преобразуем "1" в True
+    }
     save_users(users)
     return jsonify({"message": "Регистрация успешна!"}), 200
 
@@ -50,7 +54,7 @@ def login():
 def get_users():
     users = load_users()
     
-    # Возвращаем пользователей с паролями
+    # Возвращаем пользователей с паролями и статусом разработчика
     return jsonify(users)
 
 if __name__ == "__main__":
