@@ -28,7 +28,7 @@ def register():
 
     users = load_users()
 
-    if pin_code != 1312:
+    if pin_code != "1312":
         return jsonify({"message": "Pin"}), 400
 
     if username in users:
