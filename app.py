@@ -60,7 +60,7 @@ def deactivate_zero_protocol():
 @app.route("/register", methods=["POST"])
 def register():
     if load_protocol_state():
-        return jsonify({"message": "Zero protocol activated"}), 403
+        return jsonify({"message": "Нулевой протокол активирован. Действие невозможно."}), 403
     username = request.form.get("username")
     password = request.form.get("password")
     pin_code = request.form.get("pin")
