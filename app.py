@@ -15,7 +15,7 @@ def load_users():
 
 def save_users(users):
     with open(USER_DB_FILE, 'w') as f:
-        json.dump(users, f)
+        json.dump(users, f, indent=4)  # Добавлен indent для читаемости JSON
 
 def load_protocol_state():
     if os.path.exists(PROTOCOL_STATE_FILE):
@@ -25,7 +25,7 @@ def load_protocol_state():
 
 def save_protocol_state(state):
     with open(PROTOCOL_STATE_FILE, 'w') as f:
-        json.dump({'zero_protocol': state}, f)
+        json.dump({'zero_protocol': state}, f, indent=4)
 
 def check_pin(pin_code):
     correct_pin = "1312"
@@ -51,29 +51,40 @@ def deactivate_zero_protocol():
 def register():
     if load_protocol_state():
         return jsonify({"message": "Нулевой протокол активирован. Действие невозможно."}), 403
+    
+    # Получаем данные из запроса
     username = request.form.get("username")
     password = request.form.get("password")
     pin_code = request.form.get("pin")
-    developer = request.form.get("developer", "0")  # 0 - обычный пользователь
-    friend = request.form.get("friend", "0")       # 0 - не друг, 2 - друг
+    developer = request.form.get("developer", "0")  # По умолчанию обычный пользователь
+    friend = request.form.get("friend", "0")        # По умолчанию не друг
+
+    # Отладочный вывод для проверки входных данных
+    print(f"Регистрация: username={username}, password={password}, pin={pin_code}, developer={developer}, friend={friend}")
 
     users = load_users()
 
-    if pin_code != "1312":
-        return jsonify({"message": "Pin"}), 400
+    # Проверка пин-кода
+    if not check_pin(pin_code):
+        return jsonify({"message": "Неверный пин-код!"}), 400
 
+    # Проверка существования пользователя
     if username in users:
         return jsonify({"message": "Пользователь уже существует!"}), 400
 
+    # Проверка пароля
     if not password:
         return jsonify({"message": "Пароль не может быть пустым!"}), 400
 
+    # Сохранение пользователя с явной логикой ролей
     users[username] = {
         'password': password,
-        'developer': developer == "1",
-        'friend': friend == "2"
+        'developer': developer == "1",  # True если "1", иначе False
+        'friend': friend == "2"         # True если "2", иначе False
     }
+    
     save_users(users)
+    print(f"Сохранено: {users[username]}")  # Отладка сохраненных данных
     return jsonify({"message": "Регистрация успешна!"}), 200
 
 @app.route("/login", methods=["POST"])
@@ -105,13 +116,12 @@ def delete_user():
     username = request.form.get("username")
     pin_code = request.form.get("pin")
     
-    print(f"Попытка удалить пользователя: {username}, пин: {pin_code}")  # Отладочный вывод
+    print(f"Попытка удалить: username={username}, pin={pin_code}")  # Отладка
     
     if not check_pin(pin_code):
         return jsonify({"message": "Неверный пин-код!"}), 400
     
     users = load_users()
-    print(f"Текущие пользователи: {users}")  # Отладочный вывод
     
     if username not in users:
         return jsonify({"message": "Пользователь не найден!"}), 404
