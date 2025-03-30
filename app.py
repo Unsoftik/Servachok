@@ -103,10 +103,13 @@ def delete_user():
     username = request.form.get("username")
     pin_code = request.form.get("pin")
     
+    print(f"Попытка удалить пользователя: {username}, пин: {pin_code}")  # Отладочный вывод
+    
     if not check_pin(pin_code):
         return jsonify({"message": "Неверный пин-код!"}), 400
     
     users = load_users()
+    print(f"Текущие пользователи: {users}")  # Отладочный вывод
     
     if username not in users:
         return jsonify({"message": "Пользователь не найден!"}), 404
