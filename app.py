@@ -54,7 +54,8 @@ def register():
     username = request.form.get("username")
     password = request.form.get("password")
     pin_code = request.form.get("pin")
-    developer = request.form.get("developer", "0")
+    developer = request.form.get("developer", "0")  # 0 - обычный пользователь
+    friend = request.form.get("friend", "0")       # 0 - не друг, 2 - друг
 
     users = load_users()
 
@@ -69,7 +70,8 @@ def register():
 
     users[username] = {
         'password': password,
-        'developer': developer == "1"
+        'developer': developer == "1",
+        'friend': friend == "2"
     }
     save_users(users)
     return jsonify({"message": "Регистрация успешна!"}), 200
