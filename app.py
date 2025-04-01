@@ -1,11 +1,11 @@
 from flask import Flask, request, jsonify
+import json
+import os
 try:
  from flask_cors import CORS
 except ModuleNotFoundError:
     os.system('pip install flask_cors')
     from flask_cors import CORS
-import json
-import os
 
 app = Flask(__name__)
 CORS(app)  # Добавляем поддержку CORS
