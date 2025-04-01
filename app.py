@@ -1,8 +1,10 @@
 from flask import Flask, request, jsonify
+from flask_cors import CORS
 import json
 import os
 
 app = Flask(__name__)
+CORS(app)  # Добавляем поддержку CORS
 
 USER_DB_FILE = 'users.json'
 PROTOCOL_STATE_FILE = 'protocol.json'
