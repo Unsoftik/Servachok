@@ -1,14 +1,16 @@
 from flask import Flask, request, jsonify
 import json
 import os
+from datetime import datetime  # Добавляем для работы с датой
+
 try:
- from flask_cors import CORS
+    from flask_cors import CORS
 except ModuleNotFoundError:
     os.system('pip install flask_cors')
     from flask_cors import CORS
 
 app = Flask(__name__)
-CORS(app)  # Добавляем поддержку CORS
+CORS(app)
 
 USER_DB_FILE = 'users.json'
 PROTOCOL_STATE_FILE = 'protocol.json'
@@ -21,7 +23,7 @@ def load_users():
 
 def save_users(users):
     with open(USER_DB_FILE, 'w') as f:
-        json.dump(users, f, indent=4)  # Добавлен indent для читаемости JSON
+        json.dump(users, f, indent=4)
 
 def load_protocol_state():
     if os.path.exists(PROTOCOL_STATE_FILE):
@@ -58,45 +60,45 @@ def register():
     if load_protocol_state():
         return jsonify({"message": "Нулевой протокол активирован. Действие невозможно."}), 403
     
-    # Получаем данные из запроса
     username = request.form.get("username")
     password = request.form.get("password")
     pin_code = request.form.get("pin")
-    developer = request.form.get("developer", "0")  # По умолчанию обычный пользователь
-    friend = request.form.get("friend", "0")        # По умолчанию не друг
+    developer = request.form.get("developer", "0")
+    friend = request.form.get("friend", "0")
 
-    # Отладочный вывод для проверки входных данных
     print(f"Регистрация: username={username}, password={password}, pin={pin_code}, developer={developer}, friend={friend}")
 
     users = load_users()
 
-    # Проверка пин-кода
     if not check_pin(pin_code):
         return jsonify({"message": "Неверный пин-код!"}), 400
 
-    # Проверка существования пользователя
     if username in users:
         return jsonify({"message": "Пользователь уже существует!"}), 400
 
-    # Проверка пароля
     if not password:
         return jsonify({"message": "Пароль не может быть пустым!"}), 400
 
-    # Сохранение пользователя с явной логикой ролей
+    # Получаем текущую дату в формате "April 2025"
+    registration_date = datetime.now().strftime("%B %Y")
+
     users[username] = {
         'password': password,
-        'developer': developer == "1",  # True если "1", иначе False
-        'friend': friend == "2"         # True если "2", иначе False
+        'developer': developer == "1",
+        'friend': friend == "2",
+        'banned': False,  # Добавляем статус бана
+        'registration_date': registration_date  # Добавляем дату регистрации
     }
     
     save_users(users)
-    print(f"Сохранено: {users[username]}")  # Отладка сохраненных данных
+    print(f"Сохранено: {users[username]}")
     return jsonify({"message": "Регистрация успешна!"}), 200
 
 @app.route("/login", methods=["POST"])
 def login():
     if load_protocol_state():
         return jsonify({"message": "Zero protocol activated"}), 403
+    
     username = request.form.get("username")
     password = request.form.get("password")
 
@@ -104,6 +106,9 @@ def login():
 
     if username not in users or users[username]['password'] != password:
         return jsonify({"message": "Неверный логин или пароль."}), 400
+    
+    if users[username]['banned']:
+        return jsonify({"message": "Пользователь забанен!"}), 403
 
     return jsonify({"message": "Вход успешен!"}), 200
 
@@ -122,8 +127,6 @@ def delete_user():
     username = request.form.get("username")
     pin_code = request.form.get("pin")
     
-    print(f"Попытка удалить: username={username}, pin={pin_code}")  # Отладка
-    
     if not check_pin(pin_code):
         return jsonify({"message": "Неверный пин-код!"}), 400
     
@@ -135,6 +138,46 @@ def delete_user():
     del users[username]
     save_users(users)
     return jsonify({"message": f"Пользователь {username} успешно удален!"}), 200
+
+@app.route("/ban_user", methods=["POST"])
+def ban_user():
+    if load_protocol_state():
+        return jsonify({"message": "Нулевой протокол активирован. Действие невозможно."}), 403
+    
+    username = request.form.get("username")
+    pin_code = request.form.get("pin")
+    
+    if not check_pin(pin_code):
+        return jsonify({"message": "Неверный пин-код!"}), 400
+    
+    users = load_users()
+    
+    if username not in users:
+        return jsonify({"message": "Пользователь не найден!"}), 404
+    
+    users[username]['banned'] = True
+    save_users(users)
+    return jsonify({"message": f"Пользователь {username} успешно забанен!"}), 200
+
+@app.route("/unban_user", methods=["POST"])
+def unban_user():
+    if load_protocol_state():
+        return jsonify({"message": "Нулевой протокол активирован. Действие невозможно."}), 403
+    
+    username = request.form.get("username")
+    pin_code = request.form.get("pin")
+    
+    if not check_pin(pin_code):
+        return jsonify({"message": "Неверный пин-код!"}), 400
+    
+    users = load_users()
+    
+    if username not in users:
+        return jsonify({"message": "Пользователь не найден!"}), 404
+    
+    users[username]['banned'] = False
+    save_users(users)
+    return jsonify({"message": f"Пользователь {username} успешно разбанен!"}), 200
 
 if __name__ == "__main__":
     app.run(debug=True, host="0.0.0.0", port=8080)
