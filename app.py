@@ -108,7 +108,7 @@ def login():
         return jsonify({"message": "Неверный логин или пароль."}), 400
     
     if users[username]['banned']:
-        return jsonify({"message": "Пользователь забанен!"}), 403
+        return jsonify({"message": "Пользователь забанен!"}), 406
 
     return jsonify({"message": "Вход успешен!"}), 200
 
