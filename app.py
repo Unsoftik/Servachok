@@ -1,7 +1,7 @@
 from flask import Flask, request, jsonify
 import json
 import os
-from datetime import datetime  # Добавляем для работы с датой
+from datetime import datetime
 
 try:
     from flask_cors import CORS
@@ -39,6 +39,10 @@ def check_pin(pin_code):
     correct_pin = "1312"
     return pin_code == correct_pin
 
+def check_registration_pin(pin_code):
+    correct_reg_pin = "2023"  # Отдельный пин-код для регистрации
+    return pin_code == correct_reg_pin
+
 @app.route("/activate_zero_protocol", methods=["POST"])
 def activate_zero_protocol():
     pin_code = request.form.get("pin")
@@ -70,8 +74,8 @@ def register():
 
     users = load_users()
 
-    if not check_pin(pin_code):
-        return jsonify({"message": "Неверный пин-код!"}), 400
+    if not check_registration_pin(pin_code):
+        return jsonify({"message": "Неверный пин-код для регистрации!"}), 400
 
     if username in users:
         return jsonify({"message": "Пользователь уже существует!"}), 400
@@ -79,15 +83,14 @@ def register():
     if not password:
         return jsonify({"message": "Пароль не может быть пустым!"}), 400
 
-    # Получаем текущую дату в формате "April 2025"
     registration_date = datetime.now().strftime("%B %Y")
 
     users[username] = {
         'password': password,
         'developer': developer == "1",
         'friend': friend == "2",
-        'banned': False,  # Добавляем статус бана
-        'registration_date': registration_date  # Добавляем дату регистрации
+        'banned': False,
+        'registration_date': registration_date
     }
     
     save_users(users)
@@ -112,10 +115,51 @@ def login():
 
     return jsonify({"message": "Вход успешен!"}), 200
 
+@app.route("/check_registration", methods=["GET"])
+def check_registration():
+    if load_protocol_state():
+        return jsonify({"message": "Нулевой протокол активирован. Действие невозможно."}), 403
+    
+    username = request.args.get("username")
+    users = load_users()
+    
+    if username in users:
+        return jsonify({
+            "registration_date": users[username]['registration_date']
+        }), 200
+    return jsonify({
+        "registration_date": None
+    }), 200
+
+@app.route("/check_ban_status", methods=["GET"])
+def check_ban_status():
+    if load_protocol_state():
+        return jsonify({"message": "Нулевой протокол активирован. Действие невозможно."}), 403
+    
+    username = request.args.get("username")
+    users = load_users()
+    
+    if username not in users:
+        return jsonify({
+            "message": "Пользователь не найден",
+            "exists": False
+        }), 404
+    
+    return jsonify({
+        "message": "Статус пользователя получен",
+        "exists": True,
+        "banned": users[username]['banned']
+    }), 200
+
 @app.route("/get_users", methods=["GET"])
 def get_users():
     if load_protocol_state():
         return jsonify({"message": "Zero protocol activated"}), 403
+    
+    pin_code = request.args.get("pin")
+    if not check_pin(pin_code):
+        return jsonify({"message": "Неверный пин-код!"}), 400
+        
     users = load_users()
     return jsonify(users)
 
