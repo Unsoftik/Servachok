@@ -35,18 +35,22 @@ def save_protocol_state(state):
     with open(PROTOCOL_STATE_FILE, 'w') as f:
         json.dump({'zero_protocol': state}, f, indent=4)
 
-def check_pin(pin_code):
-    correct_pin = "1312"
+def check_admin_pin(pin_code):
+    correct_pin = "1312"  # Пин-код для административных действий
     return pin_code == correct_pin
 
+def check_users_pin(pin_code):
+    correct_users_pin = "2024"  # Отдельный пин-код для получения списка пользователей
+    return pin_code == correct_users_pin
+
 def check_registration_pin(pin_code):
-    correct_reg_pin = "2023"  # Отдельный пин-код для регистрации
+    correct_reg_pin = "2023"  # Пин-код для регистрации
     return pin_code == correct_reg_pin
 
 @app.route("/activate_zero_protocol", methods=["POST"])
 def activate_zero_protocol():
     pin_code = request.form.get("pin")
-    if not check_pin(pin_code):
+    if not check_admin_pin(pin_code):
         return jsonify({"message": "Неверный пин-код!"}), 400
     save_protocol_state(True)
     return jsonify({"message": "Нулевой протокол активирован!"}), 200
@@ -54,7 +58,7 @@ def activate_zero_protocol():
 @app.route("/deactivate_zero_protocol", methods=["POST"])
 def deactivate_zero_protocol():
     pin_code = request.form.get("pin")
-    if not check_pin(pin_code):
+    if not check_admin_pin(pin_code):
         return jsonify({"message": "Неверный пин-код!"}), 400
     save_protocol_state(False)
     return jsonify({"message": "Нулевой протокол деактивирован!"}), 200
@@ -69,8 +73,6 @@ def register():
     pin_code = request.form.get("pin")
     developer = request.form.get("developer", "0")
     friend = request.form.get("friend", "0")
-
-    print(f"Регистрация: username={username}, password={password}, pin={pin_code}, developer={developer}, friend={friend}")
 
     users = load_users()
 
@@ -94,7 +96,6 @@ def register():
     }
     
     save_users(users)
-    print(f"Сохранено: {users[username]}")
     return jsonify({"message": "Регистрация успешна!"}), 200
 
 @app.route("/login", methods=["POST"])
@@ -157,8 +158,8 @@ def get_users():
         return jsonify({"message": "Zero protocol activated"}), 403
     
     pin_code = request.args.get("pin")
-    if not check_pin(pin_code):
-        return jsonify({"message": "Неверный пин-код!"}), 400
+    if not check_users_pin(pin_code):
+        return jsonify({"message": "Неверный пин-код для получения списка пользователей!"}), 400
         
     users = load_users()
     return jsonify(users)
@@ -171,7 +172,7 @@ def delete_user():
     username = request.form.get("username")
     pin_code = request.form.get("pin")
     
-    if not check_pin(pin_code):
+    if not check_admin_pin(pin_code):
         return jsonify({"message": "Неверный пин-код!"}), 400
     
     users = load_users()
@@ -191,7 +192,7 @@ def ban_user():
     username = request.form.get("username")
     pin_code = request.form.get("pin")
     
-    if not check_pin(pin_code):
+    if not check_admin_pin(pin_code):
         return jsonify({"message": "Неверный пин-код!"}), 400
     
     users = load_users()
@@ -211,7 +212,7 @@ def unban_user():
     username = request.form.get("username")
     pin_code = request.form.get("pin")
     
-    if not check_pin(pin_code):
+    if not check_admin_pin(pin_code):
         return jsonify({"message": "Неверный пин-код!"}), 400
     
     users = load_users()
