@@ -2,12 +2,20 @@ from flask import Flask, request, jsonify
 import json
 import os
 from datetime import datetime
+import bcrypt  # Добавляем библиотеку для хеширования
 
 try:
     from flask_cors import CORS
 except ModuleNotFoundError:
     os.system('pip install flask_cors')
     from flask_cors import CORS
+
+# Устанавливаем bcrypt, если не установлено
+try:
+    import bcrypt
+except ModuleNotFoundError:
+    os.system('pip install bcrypt')
+    import bcrypt
 
 app = Flask(__name__)
 CORS(app)
@@ -36,15 +44,15 @@ def save_protocol_state(state):
         json.dump({'zero_protocol': state}, f, indent=4)
 
 def check_admin_pin(pin_code):
-    correct_pin = "1312"  # Пин-код для административных действий
+    correct_pin = "1312"
     return pin_code == correct_pin
 
 def check_users_pin(pin_code):
-    correct_users_pin = "2024"  # Отдельный пин-код для получения списка пользователей
+    correct_users_pin = "2024"
     return pin_code == correct_users_pin
 
 def check_registration_pin(pin_code):
-    correct_reg_pin = "2023"  # Пин-код для регистрации
+    correct_reg_pin = "2023"
     return pin_code == correct_reg_pin
 
 @app.route("/activate_zero_protocol", methods=["POST"])
@@ -85,10 +93,12 @@ def register():
     if not password:
         return jsonify({"message": "Пароль не может быть пустым!"}), 400
 
+    # Хешируем пароль перед сохранением
+    hashed_password = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
     registration_date = datetime.now().strftime("%B %Y")
 
     users[username] = {
-        'password': password,
+        'password': hashed_password.decode('utf-8'),  # Сохраняем хеш как строку
         'developer': developer == "1",
         'friend': friend == "2",
         'banned': False,
@@ -108,7 +118,12 @@ def login():
 
     users = load_users()
 
-    if username not in users or users[username]['password'] != password:
+    if username not in users:
+        return jsonify({"message": "Неверный логин или пароль."}), 400
+    
+    # Проверяем пароль, сравнивая с хешем
+    stored_password = users[username]['password'].encode('utf-8')  # Хеш из базы
+    if not bcrypt.checkpw(password.encode('utf-8'), stored_password):
         return jsonify({"message": "Неверный логин или пароль."}), 400
     
     if users[username]['banned']:
@@ -116,6 +131,7 @@ def login():
 
     return jsonify({"message": "Вход успешен!"}), 200
 
+# Остальные маршруты остаются без изменений
 @app.route("/check_registration", methods=["GET"])
 def check_registration():
     if load_protocol_state():
