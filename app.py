@@ -1,8 +1,9 @@
 from flask import Flask, request, jsonify
-import json
 import os
 from datetime import datetime
-import bcrypt  # Добавляем библиотеку для хеширования
+import bcrypt
+from flask_sqlalchemy import SQLAlchemy
+from flask_migrate import Migrate
 
 try:
     from flask_cors import CORS
@@ -10,57 +11,59 @@ except ModuleNotFoundError:
     os.system('pip install flask_cors')
     from flask_cors import CORS
 
-# Устанавливаем bcrypt, если не установлено
-try:
-    import bcrypt
-except ModuleNotFoundError:
-    os.system('pip install bcrypt')
-    import bcrypt
-
 app = Flask(__name__)
 CORS(app)
 
-USER_DB_FILE = 'users.json'
-PROTOCOL_STATE_FILE = 'protocol.json'
+# Настройка базы данных (будет браться из переменных окружения на Railway)
+app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL', 'postgresql://postgres:password@localhost:5432/mydb')
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
-def load_users():
-    if os.path.exists(USER_DB_FILE):
-        with open(USER_DB_FILE, 'r') as f:
-            return json.load(f)
-    return {}
+db = SQLAlchemy(app)
+migrate = Migrate(app, db)
 
-def save_users(users):
-    with open(USER_DB_FILE, 'w') as f:
-        json.dump(users, f, indent=4)
+# Модель для пользователей
+class User(db.Model):
+    __tablename__ = 'users'
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(80), unique=True, nullable=False)
+    password = db.Column(db.String(120), nullable=False)
+    developer = db.Column(db.Boolean, default=False)
+    friend = db.Column(db.Boolean, default=False)
+    banned = db.Column(db.Boolean, default=False)
+    registration_date = db.Column(db.String(20), nullable=False)
 
-def load_protocol_state():
-    if os.path.exists(PROTOCOL_STATE_FILE):
-        with open(PROTOCOL_STATE_FILE, 'r') as f:
-            return json.load(f).get('zero_protocol', False)
-    return False
+# Модель для состояния протокола и версии программы
+class SystemState(db.Model):
+    __tablename__ = 'system_state'
+    id = db.Column(db.Integer, primary_key=True)
+    zero_protocol = db.Column(db.Boolean, default=False)
+    program_version = db.Column(db.String(20), default='1.0.0')
 
-def save_protocol_state(state):
-    with open(PROTOCOL_STATE_FILE, 'w') as f:
-        json.dump({'zero_protocol': state}, f, indent=4)
-
+# Проверка пин-кодов
 def check_admin_pin(pin_code):
-    correct_pin = "1312"
-    return pin_code == correct_pin
+    return pin_code == "1312"
 
 def check_users_pin(pin_code):
-    correct_users_pin = "2024"
-    return pin_code == correct_users_pin
+    return pin_code == "2024"
 
 def check_registration_pin(pin_code):
-    correct_reg_pin = "2023"
-    return pin_code == correct_reg_pin
+    return pin_code == "2023"
+
+# Инициализация базы данных
+with app.app_context():
+    db.create_all()
+    if not SystemState.query.first():
+        db.session.add(SystemState(zero_protocol=False, program_version='1.0.0'))
+        db.session.commit()
 
 @app.route("/activate_zero_protocol", methods=["POST"])
 def activate_zero_protocol():
     pin_code = request.form.get("pin")
     if not check_admin_pin(pin_code):
         return jsonify({"message": "Неверный пин-код!"}), 400
-    save_protocol_state(True)
+    state = SystemState.query.first()
+    state.zero_protocol = True
+    db.session.commit()
     return jsonify({"message": "Нулевой протокол активирован!"}), 200
 
 @app.route("/deactivate_zero_protocol", methods=["POST"])
@@ -68,12 +71,15 @@ def deactivate_zero_protocol():
     pin_code = request.form.get("pin")
     if not check_admin_pin(pin_code):
         return jsonify({"message": "Неверный пин-код!"}), 400
-    save_protocol_state(False)
+    state = SystemState.query.first()
+    state.zero_protocol = False
+    db.session.commit()
     return jsonify({"message": "Нулевой протокол деактивирован!"}), 200
 
 @app.route("/register", methods=["POST"])
 def register():
-    if load_protocol_state():
+    state = SystemState.query.first()
+    if state.zero_protocol:
         return jsonify({"message": "Нулевой протокол активирован. Действие невозможно."}), 403
     
     username = request.form.get("username")
@@ -82,107 +88,114 @@ def register():
     developer = request.form.get("developer", "0")
     friend = request.form.get("friend", "0")
 
-    users = load_users()
-
     if not check_registration_pin(pin_code):
         return jsonify({"message": "Неверный пин-код для регистрации!"}), 400
 
-    if username in users:
+    if User.query.filter_by(username=username).first():
         return jsonify({"message": "Пользователь уже существует!"}), 400
 
     if not password:
         return jsonify({"message": "Пароль не может быть пустым!"}), 400
 
-    # Хешируем пароль перед сохранением
     hashed_password = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
     registration_date = datetime.now().strftime("%B %Y")
 
-    users[username] = {
-        'password': hashed_password.decode('utf-8'),  # Сохраняем хеш как строку
-        'developer': developer == "1",
-        'friend': friend == "2",
-        'banned': False,
-        'registration_date': registration_date
-    }
-    
-    save_users(users)
+    new_user = User(
+        username=username,
+        password=hashed_password.decode('utf-8'),
+        developer=developer == "1",
+        friend=friend == "2",
+        banned=False,
+        registration_date=registration_date
+    )
+    db.session.add(new_user)
+    db.session.commit()
     return jsonify({"message": "Регистрация успешна!"}), 200
 
 @app.route("/login", methods=["POST"])
 def login():
-    if load_protocol_state():
+    state = SystemState.query.first()
+    if state.zero_protocol:
         return jsonify({"message": "Zero protocol activated"}), 403
     
     username = request.form.get("username")
     password = request.form.get("password")
 
-    users = load_users()
-
-    if username not in users:
+    user = User.query.filter_by(username=username).first()
+    if not user or not bcrypt.checkpw(password.encode('utf-8'), user.password.encode('utf-8')):
         return jsonify({"message": "Неверный логин или пароль."}), 400
     
-    # Проверяем пароль, сравнивая с хешем
-    stored_password = users[username]['password'].encode('utf-8')  # Хеш из базы
-    if not bcrypt.checkpw(password.encode('utf-8'), stored_password):
-        return jsonify({"message": "Неверный логин или пароль."}), 400
-    
-    if users[username]['banned']:
+    if user.banned:
         return jsonify({"message": "Пользователь забанен!"}), 406
 
     return jsonify({"message": "Вход успешен!"}), 200
 
-# Остальные маршруты остаются без изменений
+@app.route("/get_version", methods=["GET"])
+def get_version():
+    state = SystemState.query.first()
+    return jsonify({"version": state.program_version}), 200
+
+@app.route("/update_version", methods=["POST"])
+def update_version():
+    pin_code = request.form.get("pin")
+    new_version = request.form.get("version")
+    if not check_admin_pin(pin_code):
+        return jsonify({"message": "Неверный пин-код!"}), 400
+    state = SystemState.query.first()
+    state.program_version = new_version
+    db.session.commit()
+    return jsonify({"message": f"Версия обновлена до {new_version}!"}), 200
+
+# Остальные маршруты адаптированы под базу данных
 @app.route("/check_registration", methods=["GET"])
 def check_registration():
-    if load_protocol_state():
+    state = SystemState.query.first()
+    if state.zero_protocol:
         return jsonify({"message": "Нулевой протокол активирован. Действие невозможно."}), 403
     
     username = request.args.get("username")
-    users = load_users()
-    
-    if username in users:
-        return jsonify({
-            "registration_date": users[username]['registration_date']
-        }), 200
+    user = User.query.filter_by(username=username).first()
     return jsonify({
-        "registration_date": None
+        "registration_date": user.registration_date if user else None
     }), 200
 
 @app.route("/check_ban_status", methods=["GET"])
 def check_ban_status():
-    if load_protocol_state():
+    state = SystemState.query.first()
+    if state.zero_protocol:
         return jsonify({"message": "Нулевой протокол активирован. Действие невозможно."}), 403
     
     username = request.args.get("username")
-    users = load_users()
+    user = User.query.filter_by(username=username).first()
     
-    if username not in users:
-        return jsonify({
-            "message": "Пользователь не найден",
-            "exists": False
-        }), 404
+    if not user:
+        return jsonify({"message": "Пользователь не найден", "exists": False}), 404
     
-    return jsonify({
-        "message": "Статус пользователя получен",
-        "exists": True,
-        "banned": users[username]['banned']
-    }), 200
+    return jsonify({"message": "Статус пользователя получен", "exists": True, "banned": user.banned}), 200
 
 @app.route("/get_users", methods=["GET"])
 def get_users():
-    if load_protocol_state():
+    state = SystemState.query.first()
+    if state.zero_protocol:
         return jsonify({"message": "Zero protocol activated"}), 403
     
     pin_code = request.args.get("pin")
     if not check_users_pin(pin_code):
         return jsonify({"message": "Неверный пин-код для получения списка пользователей!"}), 400
         
-    users = load_users()
-    return jsonify(users)
+    users = User.query.all()
+    return jsonify({user.username: {
+        "password": user.password,
+        "developer": user.developer,
+        "friend": user.friend,
+        "banned": user.banned,
+        "registration_date": user.registration_date
+    } for user in users})
 
 @app.route("/delete_user", methods=["POST"])
 def delete_user():
-    if load_protocol_state():
+    state = SystemState.query.first()
+    if state.zero_protocol:
         return jsonify({"message": "Нулевой протокол активирован. Действие невозможно."}), 403
     
     username = request.form.get("username")
@@ -191,18 +204,18 @@ def delete_user():
     if not check_admin_pin(pin_code):
         return jsonify({"message": "Неверный пин-код!"}), 400
     
-    users = load_users()
-    
-    if username not in users:
+    user = User.query.filter_by(username=username).first()
+    if not user:
         return jsonify({"message": "Пользователь не найден!"}), 404
     
-    del users[username]
-    save_users(users)
+    db.session.delete(user)
+    db.session.commit()
     return jsonify({"message": f"Пользователь {username} успешно удален!"}), 200
 
 @app.route("/ban_user", methods=["POST"])
 def ban_user():
-    if load_protocol_state():
+    state = SystemState.query.first()
+    if state.zero_protocol:
         return jsonify({"message": "Нулевой протокол активирован. Действие невозможно."}), 403
     
     username = request.form.get("username")
@@ -211,18 +224,18 @@ def ban_user():
     if not check_admin_pin(pin_code):
         return jsonify({"message": "Неверный пин-код!"}), 400
     
-    users = load_users()
-    
-    if username not in users:
+    user = User.query.filter_by(username=username).first()
+    if not user:
         return jsonify({"message": "Пользователь не найден!"}), 404
     
-    users[username]['banned'] = True
-    save_users(users)
+    user.banned = True
+    db.session.commit()
     return jsonify({"message": f"Пользователь {username} успешно забанен!"}), 200
 
 @app.route("/unban_user", methods=["POST"])
 def unban_user():
-    if load_protocol_state():
+    state = SystemState.query.first()
+    if state.zero_protocol:
         return jsonify({"message": "Нулевой протокол активирован. Действие невозможно."}), 403
     
     username = request.form.get("username")
@@ -231,13 +244,12 @@ def unban_user():
     if not check_admin_pin(pin_code):
         return jsonify({"message": "Неверный пин-код!"}), 400
     
-    users = load_users()
-    
-    if username not in users:
+    user = User.query.filter_by(username=username).first()
+    if not user:
         return jsonify({"message": "Пользователь не найден!"}), 404
     
-    users[username]['banned'] = False
-    save_users(users)
+    user.banned = False
+    db.session.commit()
     return jsonify({"message": f"Пользователь {username} успешно разбанен!"}), 200
 
 if __name__ == "__main__":
