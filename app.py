@@ -14,10 +14,11 @@ except ModuleNotFoundError:
 app = Flask(__name__)
 CORS(app)
 
-# Настройка базы данных (будет браться из переменных окружения на Railway)
-# Стало
+# Настройка базы данных
 database_url = os.getenv('DATABASE_URL')
-if database_url and database_url.startswith('postgres://'):
+if not database_url:
+    raise ValueError("DATABASE_URL is not set in environment variables")
+if database_url.startswith('postgres://'):
     database_url = database_url.replace('postgres://', 'postgresql://', 1)
 app.config['SQLALCHEMY_DATABASE_URI'] = database_url
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
@@ -36,12 +37,13 @@ class User(db.Model):
     banned = db.Column(db.Boolean, default=False)
     registration_date = db.Column(db.String(20), nullable=False)
 
-# Модель для состояния протокола и версии программы
+# Модель для состояния протокола, версии программы и ссылки на обновление
 class SystemState(db.Model):
     __tablename__ = 'system_state'
     id = db.Column(db.Integer, primary_key=True)
     zero_protocol = db.Column(db.Boolean, default=False)
     program_version = db.Column(db.String(20), default='1.0.0')
+    update_url = db.Column(db.String(255), nullable=True)  # Новое поле для ссылки на обновление
 
 # Проверка пин-кодов
 def check_admin_pin(pin_code):
@@ -57,7 +59,7 @@ def check_registration_pin(pin_code):
 with app.app_context():
     db.create_all()
     if not SystemState.query.first():
-        db.session.add(SystemState(zero_protocol=False, program_version='1.0.0'))
+        db.session.add(SystemState(zero_protocol=False, program_version='1.0.0', update_url=None))
         db.session.commit()
 
 @app.route("/activate_zero_protocol", methods=["POST"])
@@ -143,12 +145,23 @@ def get_version():
 def update_version():
     pin_code = request.form.get("pin")
     new_version = request.form.get("version")
+    update_url = request.form.get("update_url")  # Получаем ссылку на обновление
     if not check_admin_pin(pin_code):
         return jsonify({"message": "Неверный пин-код!"}), 400
+    if not new_version:
+        return jsonify({"message": "Новая версия не указана!"}), 400
     state = SystemState.query.first()
     state.program_version = new_version
+    state.update_url = update_url  # Сохраняем ссылку
     db.session.commit()
     return jsonify({"message": f"Версия обновлена до {new_version}!"}), 200
+
+@app.route("/get_update", methods=["GET"])
+def get_update():
+    state = SystemState.query.first()
+    if not state.update_url:
+        return jsonify({"message": "Ссылка на обновление не установлена."}), 404
+    return jsonify({"update_url": state.update_url}), 200
 
 # Остальные маршруты адаптированы под базу данных
 @app.route("/check_registration", methods=["GET"])
