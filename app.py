@@ -81,6 +81,21 @@ def deactivate_zero_protocol():
     state.zero_protocol = False
     db.session.commit()
     return jsonify({"message": "Нулевой протокол деактивирован!"}), 200
+@app.route("/delete_all_users", methods=["POST"])
+def delete_all_users():
+    state = SystemState.query.first()
+    if state.zero_protocol:
+        return jsonify({"message": "Нулевой протокол активирован. Действие невозможно."}), 403
+    
+    pin_code = request.form.get("pin")
+    if not check_admin_pin(pin_code):
+        return jsonify({"message": "Неверный пин-код!"}), 400
+    
+    # Удаление всех пользователей из базы данных
+    User.query.delete()
+    db.session.commit()
+    
+    return jsonify({"message": "Все пользователи успешно удалены!"}), 200
 
 @app.route("/register", methods=["POST"])
 def register():
