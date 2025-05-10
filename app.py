@@ -1,9 +1,10 @@
 from flask import Flask, request, jsonify
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 import bcrypt
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
+import uuid
 
 try:
     from flask_cors import CORS
@@ -36,6 +37,17 @@ class User(db.Model):
     friend = db.Column(db.Boolean, default=False)
     banned = db.Column(db.Boolean, default=False)
     registration_date = db.Column(db.String(20), nullable=False)
+    key_id = db.Column(db.Integer, db.ForeignKey('keys.id'), nullable=True)
+
+# Модель для ключей
+class Key(db.Model):
+    __tablename__ = 'keys'
+    id = db.Column(db.Integer, primary_key=True)
+    key_value = db.Column(db.String(36), unique=True, nullable=False)  # UUID для ключа
+    duration_days = db.Column(db.Integer, nullable=False)  # 15, 30 или -1 (навсегда)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    expires_at = db.Column(db.DateTime, nullable=True)
+    used = db.Column(db.Boolean, default=False)
 
 # Модель для состояния протокола, версии программы и ссылки на обновление
 class SystemState(db.Model):
@@ -43,7 +55,7 @@ class SystemState(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     zero_protocol = db.Column(db.Boolean, default=False)
     program_version = db.Column(db.String(20), default='1.0.0')
-    update_url = db.Column(db.String(255), nullable=True)  # Новое поле для ссылки на обновление
+    update_url = db.Column(db.String(255), nullable=True)
 
 # Проверка пин-кодов
 def check_admin_pin(pin_code):
@@ -52,15 +64,24 @@ def check_admin_pin(pin_code):
 def check_users_pin(pin_code):
     return pin_code == "2024"
 
-def check_registration_pin(pin_code):
-    return pin_code == "2023"
-
 # Инициализация базы данных
 with app.app_context():
     db.create_all()
     if not SystemState.query.first():
         db.session.add(SystemState(zero_protocol=False, program_version='1.0.0', update_url=None))
         db.session.commit()
+
+# Проверка и удаление истекших аккаунтов
+def check_expired_keys():
+    keys = Key.query.filter(Key.used == True, Key.expires_at != None).all()
+    current_time = datetime.utcnow()
+    for key in keys:
+        if key.expires_at < current_time:
+            user = User.query.filter_by(key_id=key.id).first()
+            if user:
+                db.session.delete(user)
+            key.used = False  # Ключ становится неиспользованным
+            db.session.commit()
 
 @app.route("/activate_zero_protocol", methods=["POST"])
 def activate_zero_protocol():
@@ -81,6 +102,7 @@ def deactivate_zero_protocol():
     state.zero_protocol = False
     db.session.commit()
     return jsonify({"message": "Нулевой протокол деактивирован!"}), 200
+
 @app.route("/delete_all_users", methods=["POST"])
 def delete_all_users():
     state = SystemState.query.first()
@@ -91,11 +113,39 @@ def delete_all_users():
     if not check_admin_pin(pin_code):
         return jsonify({"message": "Неверный пин-код!"}), 400
     
-    # Удаление всех пользователей из базы данных
     User.query.delete()
+    Key.query.delete()  # Удаляем также все ключи
     db.session.commit()
     
-    return jsonify({"message": "Все пользователи успешно удалены!"}), 200
+    return jsonify({"message": "Все пользователи и ключи успешно удалены!"}), 200
+
+@app.route("/create_key", methods=["POST"])
+def create_key():
+    pin_code = request.form.get("pin")
+    duration = request.form.get("duration")  # 15, 30 или -1 (навсегда)
+    
+    if not check_admin_pin(pin_code):
+        return jsonify({"message": "Неверный пин-код!"}), 400
+    
+    if duration not in ["15", "30", "-1"]:
+        return jsonify({"message": "Недопустимая длительность ключа! Используйте 15, 30 или -1."}), 400
+    
+    duration = int(duration)
+    key_value = str(uuid.uuid4())  # Генерируем уникальный ключ
+    expires_at = None
+    if duration != -1:
+        expires_at = datetime.utcnow() + timedelta(days=duration)
+    
+    new_key = Key(
+        key_value=key_value,
+        duration_days=duration,
+        expires_at=expires_at,
+        used=False
+    )
+    db.session.add(new_key)
+    db.session.commit()
+    
+    return jsonify({"message": "Ключ успешно создан!", "key": key_value}), 200
 
 @app.route("/register", methods=["POST"])
 def register():
@@ -105,12 +155,18 @@ def register():
     
     username = request.form.get("username")
     password = request.form.get("password")
-    pin_code = request.form.get("pin")
+    key_value = request.form.get("key")
     developer = request.form.get("developer", "0")
     friend = request.form.get("friend", "0")
 
-    if not check_registration_pin(pin_code):
-        return jsonify({"message": "Неверный пин-код для регистрации!"}), 400
+    # Проверяем ключ
+    key = Key.query.filter_by(key_value=key_value).first()
+    if not key:
+        return jsonify({"message": "Неверный ключ!"}), 400
+    if key.used:
+        return jsonify({"message": "Ключ уже использован!"}), 400
+    if key.expires_at and key.expires_at < datetime.utcnow():
+        return jsonify({"message": "Срок действия ключа истек!"}), 400
 
     if User.query.filter_by(username=username).first():
         return jsonify({"message": "Пользователь уже существует!"}), 400
@@ -127,10 +183,16 @@ def register():
         developer=developer == "1",
         friend=friend == "2",
         banned=False,
-        registration_date=registration_date
+        registration_date=registration_date,
+        key_id=key.id
     )
+    key.used = True
     db.session.add(new_user)
     db.session.commit()
+    
+    # Проверяем истекшие ключи после регистрации
+    check_expired_keys()
+    
     return jsonify({"message": "Регистрация успешна!"}), 200
 
 @app.route("/login", methods=["POST"])
@@ -149,6 +211,12 @@ def login():
     if user.banned:
         return jsonify({"message": "Пользователь забанен!"}), 406
 
+    # Проверяем истекшие ключи при входе
+    check_expired_keys()
+    
+    if not User.query.filter_by(username=username).first():
+        return jsonify({"message": "Аккаунт удален из-за истечения срока действия ключа."}), 403
+    
     return jsonify({"message": "Вход успешен!"}), 200
 
 @app.route("/get_version", methods=["GET"])
@@ -160,14 +228,14 @@ def get_version():
 def update_version():
     pin_code = request.form.get("pin")
     new_version = request.form.get("version")
-    update_url = request.form.get("update_url")  # Получаем ссылку на обновление
+    update_url = request.form.get("update_url")
     if not check_admin_pin(pin_code):
         return jsonify({"message": "Неверный пин-код!"}), 400
     if not new_version:
         return jsonify({"message": "Новая версия не указана!"}), 400
     state = SystemState.query.first()
     state.program_version = new_version
-    state.update_url = update_url  # Сохраняем ссылку
+    state.update_url = update_url
     db.session.commit()
     return jsonify({"message": f"Версия обновлена до {new_version}!"}), 200
 
@@ -178,7 +246,6 @@ def get_update():
         return jsonify({"message": "Ссылка на обновление не установлена."}), 404
     return jsonify({"update_url": state.update_url}), 200
 
-# Остальные маршруты адаптированы под базу данных
 @app.route("/check_registration", methods=["GET"])
 def check_registration():
     state = SystemState.query.first()
@@ -240,6 +307,9 @@ def delete_user():
     if not user:
         return jsonify({"message": "Пользователь не найден!"}), 404
     
+    key = Key.query.get(user.key_id)
+    if key:
+        key.used = False
     db.session.delete(user)
     db.session.commit()
     return jsonify({"message": f"Пользователь {username} успешно удален!"}), 200
